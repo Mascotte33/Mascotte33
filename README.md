@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="assets/avatar.png" alt="Kamil Kolmasiak" width="160"/>
-
 <img src="dist/terminal.svg" alt="Kamil Kolmasiak, Junior DevOps / Cloud Engineer, open to work" width="100%"/>
 
 <img src="dist/pacman.svg" alt="Pac-Man eating my contribution graph" width="100%"/>
