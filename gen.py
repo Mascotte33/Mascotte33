@@ -308,21 +308,19 @@ def graph_labels(weeks: list[dict], left: int, top: int, step: int, width: int, 
     for row, day in ((1, "Mon"), (3, "Wed"), (5, "Fri")):
         labels.append(f'<text x="{left - 6}" y="{top + row * step + 9}" text-anchor="end">{day}</text>')
     total = sum(day["contributionCount"] for week in weeks for day in week["contributionDays"])
-    labels.append(f'<text x="{left}" y="{height - 12}">{total} contributions in the last year</text>')
-    key_x = left + 215
-    for offset, name, color in ((0, "GitHub", GITHUB_GREENS[2]), (70, "Azure DevOps", AZURE_BLUES[2])):
-        labels.append(f'<rect x="{key_x + offset}" y="{height - 22}" width="11" height="11" rx="2" fill="{color}"/>'
-                      f'<text x="{key_x + offset + 15}" y="{height - 12}">{name}</text>')
+    labels.append(f'<text x="{left}" y="{height - 30}">{total} contributions in the last year</text>')
     legend_x = width - 16 - 5 * step - 30
-    labels.append(f'<text x="{legend_x - 6}" y="{height - 12}" text-anchor="end">Less</text>')
-    labels += [f'<rect x="{legend_x + i * step}" y="{height - 22}" width="11" height="11" rx="2" fill="{color}"/>'
-               for i, color in enumerate([EMPTY_CELL] + GITHUB_GREENS)]
-    labels.append(f'<text x="{legend_x + 5 * step + 3}" y="{height - 12}">More</text>')
+    for baseline, name, shades in ((height - 30, "GitHub", GITHUB_GREENS), (height - 14, "Azure DevOps", AZURE_BLUES)):
+        labels.append(f'<text x="{legend_x - 34}" y="{baseline}" text-anchor="end">{name}</text>'
+                      f'<text x="{legend_x - 6}" y="{baseline}" text-anchor="end">Less</text>'
+                      f'<text x="{legend_x + 5 * step + 3}" y="{baseline}">More</text>')
+        labels += [f'<rect x="{legend_x + i * step}" y="{baseline - 10}" width="11" height="11" rx="2" fill="{color}"/>'
+                   for i, color in enumerate([EMPTY_CELL] + shades)]
     return f'<g fill="{GREY}" style="font:10px -apple-system,Segoe UI,Helvetica,Arial,sans-serif">{"".join(labels)}</g>'
 
 
 def draw_pacman(weeks: list[dict], seed: str) -> str:
-    cell, gap, left, top, bottom, right = 11, 3, 40, 30, 34, 16
+    cell, gap, left, top, bottom, right = 11, 3, 40, 30, 50, 16
     step = cell + gap
     grid_w, grid_h = len(weeks), 7
     width, height = left + right + grid_w * step - gap, top + bottom + grid_h * step - gap
