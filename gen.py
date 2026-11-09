@@ -24,7 +24,12 @@ REPO_STACKS = {
     "System-Resource-Monitor": "Prometheus, Grafana",
     "cron-data-puller": "cron, APIs",
     "Moonlight": "Python, OpenCV, Claude Code",
+    "Gierka": "k3s, Argo CD (Azure DevOps)",
 }
+# The multiplayer game lives in Azure DevOps; its commits join the contribution graph.
+AZURE_DEVOPS_ORG = "https://dev.azure.com/michalkogut810"
+AZURE_GAME_REPO = "Gierka"
+AZURE_AUTHOR_EMAIL = "kamil.kolmasiak@gmail.com"
 
 
 def fetch(url: str, body: dict | None = None) -> bytes:
@@ -34,6 +39,13 @@ def fetch(url: str, body: dict | None = None) -> bytes:
         if not token:
             raise SystemExit("GITHUB_TOKEN is not set")
         headers["Authorization"] = f"bearer {token}"
+    if url.startswith(AZURE_DEVOPS_ORG):
+        token = os.environ.get("AZURE_DEVOPS_TOKEN")
+        if not token:
+            raise SystemExit("AZURE_DEVOPS_TOKEN is not set (a PAT with Code: Read)")
+        # A PAT goes in Basic auth; an `az account get-access-token` JWT (starts eyJ) is a Bearer.
+        headers["Authorization"] = (f"Bearer {token}" if token.startswith("eyJ")
+                                    else "Basic " + base64.b64encode(f":{token}".encode()).decode())
     data = json.dumps(body).encode() if body else None
     request = urllib.request.Request(url, data=data, headers=headers)
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -42,6 +54,23 @@ def fetch(url: str, body: dict | None = None) -> bytes:
 
 def fetch_json(url: str, body: dict | None = None):
     return json.loads(fetch(url, body))
+
+
+def azure_devops_commits_per_day(from_date: str) -> dict[str, int]:
+    """My commits per day (YYYY-MM-DD) on the default branch of every repo in the Azure DevOps org."""
+    page_size = 5000
+    per_day: dict[str, int] = {}
+    for repo in fetch_json(f"{AZURE_DEVOPS_ORG}/_apis/git/repositories?api-version=7.1")["value"]:
+        commits = fetch_json(f"{AZURE_DEVOPS_ORG}/_apis/git/repositories/{repo['id']}/commits"
+                             f"?searchCriteria.fromDate={from_date}&searchCriteria.$top={page_size}"
+                             "&api-version=7.1")["value"]
+        if len(commits) == page_size:
+            raise SystemExit(f"{repo['name']}: {page_size}+ commits in a year, add paging")
+        for commit in commits:
+            if commit["author"]["email"].lower() == AZURE_AUTHOR_EMAIL:
+                day = commit["author"]["date"][:10]
+                per_day[day] = per_day.get(day, 0) + 1
+    return per_day
 
 
 def keyframes(name: str, frames: list[tuple[float, str]], total_seconds: float) -> str:
@@ -182,8 +211,9 @@ GAMES_PER_ANIMATION, MAX_TICKS_PER_GAME = 5, 700
 GHOST_POOL = [("crab", ""), ("openai", "#ffffff"), ("docker", "#2496ED"), ("kubernetes", "#326CE5"),
               ("googlegemini", "#8E75B2"), ("terraform", "#844FBA"), ("amazonwebservices", "#FF9900"),
               ("prometheus", "#E6522C"), ("grafana", "#F46800"), ("githubactions", "#2088FF")]
-LEVEL_COLORS = {"NONE": "#161b22", "FIRST_QUARTILE": "#0e4429", "SECOND_QUARTILE": "#006d32",
-                "THIRD_QUARTILE": "#26a641", "FOURTH_QUARTILE": "#39d353"}
+EMPTY_CELL = "#161b22"
+GITHUB_GREENS = ["#0e4429", "#006d32", "#26a641", "#39d353"]
+AZURE_BLUES = ["#0c2d6b", "#1158c7", "#2f81f7", "#79c0ff"]  # days mostly committed in Azure DevOps
 DIRECTIONS = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 CRAB_SYMBOL = (
     '<symbol id="icon-crab" viewBox="0 0 14 14" shape-rendering="crispEdges">'
@@ -257,22 +287,56 @@ def icon_symbol(icon: str, color: str) -> str:
     return f'<symbol id="icon-{icon}" viewBox="0 0 24 24">{path}</symbol>'
 
 
+def contribution_color(count: int, nonzero_counts: list[int], shades: list[str]) -> str:
+    """GitHub-style shade: quartile of this count among all days with contributions."""
+    if count == 0:
+        return EMPTY_CELL
+    ordered = sorted(nonzero_counts)
+    quartile_tops = [ordered[len(ordered) * q // 4] for q in (1, 2, 3)]
+    return shades[sum(count > top for top in quartile_tops)]
+
+
+def graph_labels(weeks: list[dict], left: int, top: int, step: int, width: int, height: int) -> str:
+    """Month names, Mon/Wed/Fri, total count and the Less-More legend, laid out like GitHub's."""
+    labels, last_month_x = [], -99
+    for x, week in enumerate(weeks):
+        month = datetime.date.fromisoformat(week["contributionDays"][0]["date"]).strftime("%b")
+        if (x == 0 or month != previous_month) and x - last_month_x >= 3 and x < len(weeks) - 2:
+            labels.append(f'<text x="{left + x * step}" y="{top - 7}">{month}</text>')
+            last_month_x = x
+        previous_month = month
+    for row, day in ((1, "Mon"), (3, "Wed"), (5, "Fri")):
+        labels.append(f'<text x="{left - 6}" y="{top + row * step + 9}" text-anchor="end">{day}</text>')
+    total = sum(day["contributionCount"] for week in weeks for day in week["contributionDays"])
+    labels.append(f'<text x="{left}" y="{height - 12}">{total} contributions in the last year</text>')
+    key_x = left + 215
+    for offset, name, color in ((0, "GitHub", GITHUB_GREENS[2]), (70, "Azure DevOps", AZURE_BLUES[2])):
+        labels.append(f'<rect x="{key_x + offset}" y="{height - 22}" width="11" height="11" rx="2" fill="{color}"/>'
+                      f'<text x="{key_x + offset + 15}" y="{height - 12}">{name}</text>')
+    legend_x = width - 16 - 5 * step - 30
+    labels.append(f'<text x="{legend_x - 6}" y="{height - 12}" text-anchor="end">Less</text>')
+    labels += [f'<rect x="{legend_x + i * step}" y="{height - 22}" width="11" height="11" rx="2" fill="{color}"/>'
+               for i, color in enumerate([EMPTY_CELL] + GITHUB_GREENS)]
+    labels.append(f'<text x="{legend_x + 5 * step + 3}" y="{height - 12}">More</text>')
+    return f'<g fill="{GREY}" style="font:10px -apple-system,Segoe UI,Helvetica,Arial,sans-serif">{"".join(labels)}</g>'
+
+
 def draw_pacman(weeks: list[dict], seed: str) -> str:
-    cell, gap, pad = 11, 3, 16
+    cell, gap, left, top, bottom, right = 11, 3, 40, 30, 34, 16
     step = cell + gap
     grid_w, grid_h = len(weeks), 7
-    width, height = pad * 2 + grid_w * step - gap, pad * 2 + grid_h * step - gap
+    width, height = left + right + grid_w * step - gap, top + bottom + grid_h * step - gap
 
     def center(position):
-        return pad + position[0] * step + cell / 2, pad + position[1] * step + cell / 2
+        return left + position[0] * step + cell / 2, top + position[1] * step + cell / 2
 
     def move_to(position):
         x, y = center(position)
         return f"transform:translate({x:.1f}px,{y:.1f}px)"
 
-    levels = {(x, day["weekday"]): day["contributionLevel"]
+    fills = {(x, day["weekday"]): day["color"]
               for x, week in enumerate(weeks) for day in week["contributionDays"]}
-    food = {position for position, level in levels.items() if level != "NONE"}
+    food = {position for position, fill in fills.items() if fill != EMPTY_CELL}
     rng = random.Random(seed)
     games, start = [], 0.0
     for _ in range(GAMES_PER_ANIMATION):
@@ -288,18 +352,18 @@ def draw_pacman(weeks: list[dict], seed: str) -> str:
 
     # Cells: refill at each game start, go dark when eaten.
     cells = []
-    for index, (position, level) in enumerate(sorted(levels.items())):
-        x, y = pad + position[0] * step, pad + position[1] * step
-        rect = f'x="{x}" y="{y}" width="{cell}" height="{cell}" rx="2" fill="{LEVEL_COLORS[level]}"'
-        if level == "NONE":
+    for index, (position, fill) in enumerate(sorted(fills.items())):
+        x, y = left + position[0] * step, top + position[1] * step
+        rect = f'x="{x}" y="{y}" width="{cell}" height="{cell}" rx="2" fill="{fill}"'
+        if fill == EMPTY_CELL:
             cells.append(f"<rect {rect}/>")
             continue
         frames = []
         for game in games:
-            frames.append((game["start"], f"fill:{LEVEL_COLORS[level]}"))
+            frames.append((game["start"], f"fill:{fill}"))
             if position in game["eaten"]:
                 frames.append((game["start"] + game["eaten"][position] * TICK_SECONDS,
-                               f"fill:{LEVEL_COLORS['NONE']}"))
+                               f"fill:{EMPTY_CELL}"))
         css.append(keyframes(f"c{index}", frames, total) + f"#c{index}{{animation-name:c{index}}}")
         cells.append(f'<rect id="c{index}" class="a" {rect}/>')
 
@@ -355,6 +419,7 @@ def draw_pacman(weeks: list[dict], seed: str) -> str:
 <style>{''.join(css)}</style>
 <defs>{symbols}</defs>
 <rect width="{width}" height="{height}" rx="12" fill="{BACKGROUND}"/>
+{graph_labels(weeks, left, top, step, width, height)}
 <g id="board" class="a">{''.join(cells)}{''.join(ghosts)}{pacman_sprite}</g>
 </svg>"""
 
@@ -368,12 +433,23 @@ def main() -> None:
     avatar = fetch(user["avatar_url"] + "&s=240")
     mime = "image/jpeg" if avatar[:2] == b"\xff\xd8" else "image/png"
     avatar_uri = f"data:{mime};base64," + base64.b64encode(avatar).decode()
+    repos.insert(0, {"name": AZURE_GAME_REPO})
     calendar = fetch_json("https://api.github.com/graphql", {"query": (
         f'{{user(login:"{USER}"){{contributionsCollection{{contributionCalendar{{weeks{{'
-        "contributionDays{weekday contributionLevel}}}}}}")})
+        "contributionDays{date weekday contributionCount}}}}}}")})
     if "errors" in calendar:
         raise SystemExit(f"GraphQL error: {calendar['errors']}")
     weeks = calendar["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+    days = [day for week in weeks for day in week["contributionDays"]]
+    azure = azure_devops_commits_per_day(days[0]["date"])
+    for day in days:
+        github_count = day["contributionCount"]
+        day["contributionCount"] += azure.get(day["date"], 0)
+        day["mostly_azure"] = azure.get(day["date"], 0) > github_count
+    nonzero_counts = [day["contributionCount"] for day in days if day["contributionCount"]]
+    for day in days:
+        shades = AZURE_BLUES if day["mostly_azure"] else GITHUB_GREENS
+        day["color"] = contribution_color(day["contributionCount"], nonzero_counts, shades)
 
     os.makedirs(OUT_DIR, exist_ok=True)
     with open(f"{OUT_DIR}/terminal.svg", "w", encoding="utf-8") as file:

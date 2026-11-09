@@ -28,7 +28,7 @@ spec:
     ai: [claude-code, claude-api, mcp]
   languages: [bash, python, sql]
   containers:
-    - name: multiplayer-game-platform
+    - name: gierka                             # multiplayer browser game, Azure DevOps repo
       image: k3s + argo-cd + cloudnative-pg      # gitops, backups, runbooks
     - name: tripin.pl
       image: aws + terraform + ansible           # live web product
