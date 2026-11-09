@@ -11,6 +11,7 @@ import os
 import random
 import urllib.request
 from html import escape
+from pathlib import Path
 
 USER = "Mascotte33"
 OUT_DIR = "dist"
@@ -425,12 +426,10 @@ def draw_pacman(weeks: list[dict], seed: str) -> str:
 # ---------------------------------------------------------------- main
 
 def main() -> None:
-    user = fetch_json(f"https://api.github.com/users/{USER}")
     repos = fetch_json(f"https://api.github.com/users/{USER}/repos?sort=pushed&per_page=100")
     repos = [r for r in repos if not r["fork"] and r["name"].lower() != USER.lower()]
-    avatar = fetch(user["avatar_url"] + "&s=240")
-    mime = "image/jpeg" if avatar[:2] == b"\xff\xd8" else "image/png"
-    avatar_uri = f"data:{mime};base64," + base64.b64encode(avatar).decode()
+    photo = (Path(__file__).parent / "assets" / "photo.jpg").read_bytes()
+    avatar_uri = "data:image/jpeg;base64," + base64.b64encode(photo).decode()
     repos.insert(0, {"name": AZURE_GAME_REPO})
     calendar = fetch_json("https://api.github.com/graphql", {"query": (
         f'{{user(login:"{USER}"){{contributionsCollection{{contributionCalendar{{weeks{{'
