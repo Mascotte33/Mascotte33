@@ -20,18 +20,21 @@ spec:
   stack:
     cloud: [aws-ec2, s3, rds, iam, cloudfront]
     iac: [terraform, ansible]
-    kubernetes: [k3s, kustomize, helm, argo-cd, gateway-api]
-    ci-cd: [github-actions, azure-pipelines, trivy]
+    linux: [rhel, systemd, firewalld, selinux]
+    kubernetes: [docker, k3s, kustomize, helm, argo-cd, gateway-api]
+    ci-cd: [gitlab-ci, github-actions, azure-pipelines, trivy]
     observability: [prometheus, grafana, loki, alloy, alertmanager, cloudwatch]
-    databases: [postgresql, cloudnative-pg, flyway]
+    databases: [postgresql, mysql, mongodb, cloudnative-pg, flyway]
+    messaging: [rabbitmq]
+    networking: [tcp-ip, dns, http-https, nginx]
     security: [rbac, network-policies, sealed-secrets, tailscale]
     ai: [claude-code, claude-api, mcp]
   languages: [bash, python, sql]
   containers:
     - name: gierka                             # multiplayer browser game, Azure DevOps repo
-      image: k3s + argo-cd + cloudnative-pg      # gitops, backups, runbooks
+      image: k3s + argo-cd + postgres + rabbitmq # gitops, backups, runbooks
     - name: tripin.pl
-      image: aws + terraform + ansible           # live web product
+      image: aws + terraform + ansible + rhel    # live web product
     - name: moonlight
       image: python + opencv + claude-code       # ~1,200 tests behind CI gates
   contact:
